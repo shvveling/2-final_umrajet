@@ -1,52 +1,29 @@
 import logging
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.dispatcher import FSMContext
 import os
 
-# Logger
 logging.basicConfig(level=logging.INFO)
 
-# Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(",")))  # Admin IDs as integers
+ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("ADMIN_IDS") else []
 GROUP_ID = int(os.getenv("GROUP_ID", "0"))
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
-# FSM States
+# FSM (agar kerak bo‘lsa keyinchalik kengaytiriladi)
 class OrderStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_service = State()
     waiting_for_confirmation = State()
-    waiting_for_payment = State()
 
-# --- Utility functions ---
-
-def get_welcome_message(user_name: str) -> str:
-    return (
-        f"👋 Assalomu alaykum, <b>{user_name}</b>!\n\n"
-        "UmraJet botiga xush kelibsiz! Sizga eng yaxshi xizmatlarimizni taklif qilamiz. "
-        "Quyida mavjud xizmatlarimiz bilan tanishing:\n\n"
-        "✨ Umra paketlari\n"
-        "✨ Saudiya vizalari\n"
-        "✨ Rawdah tasrihi\n"
-        "✨ Transport xizmatlari\n"
-        "✨ HHR poyezd chiptalari\n"
-        "✨ Guruhlik ovqatlanish\n"
-        "✨ Donat qilish imkoniyati\n\n"
-        "📢 Yangiliklar uchun kanalimizni kuzatib boring: @umrajet\n"
-        "👨‍💼 Bosh menejerlarimiz:\n"
-        " - @vip_arabiy (Asosiy)\n"
-        " - @V001VB (Zaxira)\n\n"
-        "📩 Xizmatlardan birini tanlash uchun quyidagi menyudan foydalaning."
-    )
-
-def main_menu_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+# --- Main menu klaviaturasi ---
+def main_menu_kb():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buttons = [
         "🕋 Umra Paketlari",
         "🛂 Saudiya Vizalari",
@@ -57,61 +34,67 @@ def main_menu_keyboard():
         "🎁 Donat Qilish",
         "❌ Bekor Qilish"
     ]
-    keyboard.add(*buttons)
-    return keyboard
+    kb.add(*buttons)
+    return kb
 
-def service_panel_keyboard(service_name):
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
-    # Example buttons, customize for each service
-    if service_name == "Umra Paketlari":
-        keyboard.add(
+# --- Service Inline Keyboard ---
+def service_inline_kb(service):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    if service == "Umra Paketlari":
+        kb.add(
             types.InlineKeyboardButton("Standard Paket", callback_data="umra_standard"),
             types.InlineKeyboardButton("VIP Paket", callback_data="umra_vip"),
         )
-    elif service_name == "Saudiya Vizalari":
-        keyboard.add(
+    elif service == "Saudiya Vizalari":
+        kb.add(
             types.InlineKeyboardButton("Umra Viza", callback_data="visa_umra"),
             types.InlineKeyboardButton("Turistik Viza", callback_data="visa_tourist"),
         )
-    elif service_name == "Rawdah Tasrihi":
-        keyboard.add(
-            types.InlineKeyboardButton("Tasrih olish", callback_data="tasreh_order"),
+    elif service == "Rawdah Tasrihi":
+        kb.add(
+            types.InlineKeyboardButton("Tasrih Olish", callback_data="tasreh_order"),
         )
-    elif service_name == "Transport Xizmatlari":
-        keyboard.add(
+    elif service == "Transport Xizmatlari":
+        kb.add(
             types.InlineKeyboardButton("Makkaga Transport", callback_data="transport_makka"),
             types.InlineKeyboardButton("Madina Transport", callback_data="transport_madina"),
         )
-    elif service_name == "HHR Poyezd Chiptalari":
-        keyboard.add(
+    elif service == "HHR Poyezd Chiptalari":
+        kb.add(
             types.InlineKeyboardButton("Madina – Makkah", callback_data="train_mm"),
             types.InlineKeyboardButton("Riyadh – Dammam", callback_data="train_rd"),
+            types.InlineKeyboardButton("Makkah – Madina", callback_data="train_mk_md"),
+            types.InlineKeyboardButton("Dammam – Riyadh", callback_data="train_dm_ry"),
         )
-    elif service_name == "Guruhlik Ovqatlanish":
-        keyboard.add(
+    elif service == "Guruhlik Ovqatlanish":
+        kb.add(
             types.InlineKeyboardButton("Ovqat Buyurtma", callback_data="group_food"),
         )
-    elif service_name == "Donat Qilish":
-        keyboard.add(
-            types.InlineKeyboardButton("Donat qilish", callback_data="donate"),
+    elif service == "Donat Qilish":
+        kb.add(
+            types.InlineKeyboardButton("Donat Qilish", callback_data="donate"),
         )
-    keyboard.add(types.InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_menu"))
-    return keyboard
+    kb.add(types.InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_menu"))
+    return kb
 
-# --- Handlers ---
-
+# --- Start handler ---
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
     user_name = message.from_user.first_name or "Hurmatli mijoz"
-    await message.answer(get_welcome_message(user_name), reply_markup=main_menu_keyboard())
+    text = (
+        f"👋 Assalomu alaykum, <b>{user_name}</b>!\n\n"
+        "UmraJet botiga xush kelibsiz! Quyidagi xizmatlardan birini tanlang:"
+    )
+    await message.answer(text, reply_markup=main_menu_kb())
 
-@dp.message_handler(lambda m: m.text == "❌ Bekor Qilish")
-async def cancel_order(message: types.Message, state: FSMContext):
+# --- Cancel handler ---
+@dp.message_handler(lambda message: message.text == "❌ Bekor Qilish")
+async def cancel_handler(message: types.Message, state: FSMContext):
     await state.finish()
-    await message.answer("Buyurtma bekor qilindi. Yana xohlasangiz, boshlash uchun /start buyrug‘ini bosing.",
-                         reply_markup=types.ReplyKeyboardRemove())
+    await message.answer("Buyurtma bekor qilindi. /start orqali boshidan boshlashingiz mumkin.", reply_markup=types.ReplyKeyboardRemove())
 
-@dp.message_handler(lambda m: m.text in [
+# --- Service selection handler ---
+@dp.message_handler(lambda message: message.text in [
     "🕋 Umra Paketlari",
     "🛂 Saudiya Vizalari",
     "🌟 Rawdah Tasrihi",
@@ -120,124 +103,182 @@ async def cancel_order(message: types.Message, state: FSMContext):
     "🍽️ Guruhlik Ovqatlanish",
     "🎁 Donat Qilish"
 ])
-async def service_selected(message: types.Message, state: FSMContext):
-    service = message.text
-    await state.update_data(chosen_service=service)
-    kb = service_panel_keyboard(service)
-    await message.answer(f"✅ Siz <b>{service}</b> bo‘limidasiz. Quyidagi xizmatlardan birini tanlang:", reply_markup=kb)
+async def service_select_handler(message: types.Message):
+    service = message.text.replace("🕋 ", "").replace("🛂 ", "").replace("🌟 ", "").replace("🚖 ", "")\
+        .replace("🚄 ", "").replace("🍽️ ", "").replace("🎁 ", "")
+    kb = service_inline_kb(service)
+    await message.answer(f"<b>{service}</b> bo‘limiga xush kelibsiz! Quyidagi xizmatlardan birini tanlang:", reply_markup=kb)
 
-@dp.callback_query_handler(lambda c: c.data.startswith(("umra_", "visa_", "tasreh_", "transport_", "train_", "group_food", "donate", "back_to_menu")))
-async def process_service_callback(callback_query: types.CallbackQuery, state: FSMContext):
+# --- Callback handler for inline buttons ---
+@dp.callback_query_handler()
+async def callback_handler(callback_query: types.CallbackQuery):
     data = callback_query.data
     user_id = callback_query.from_user.id
 
+    # Orqaga tugmasi
     if data == "back_to_menu":
         await bot.answer_callback_query(callback_query.id)
-        await bot.send_message(user_id, "Bosh menyuga qaytdingiz.", reply_markup=main_menu_keyboard())
+        await bot.send_message(user_id, "Bosh menyuga qaytdingiz.", reply_markup=main_menu_kb())
         return
 
-    # Bu yerda har bir xizmat uchun tafsilotlar va buyurtma bosqichlari qo‘shiladi
-    if data.startswith("umra_"):
-        # Misol uchun, Umra paketlari
-        if data == "umra_standard":
-            text = (
-                "🕋 <b>Umra Standard Paket</b>\n\n"
-                "Sizga arzon va sifatli Umra paketini taklif qilamiz. Barcha asosiy xizmatlar kiradi.\n\n"
-                "Qo‘shimcha ma’lumot va buyurtma uchun adminlarimizga murojaat qiling."
-            )
-        elif data == "umra_vip":
-            text = (
-                "🕋 <b>Umra VIP Paket</b>\n\n"
-                "Eng yuqori sifatdagi xizmatlar, eksklyuziv joylar va qulayliklar.\n\n"
-                "Buyurtma berish uchun adminlar bilan bog‘laning."
-            )
+    # Umra paketlari
+    if data == "umra_standard":
         await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🕋 <b>Umra Standard Paket</b>\n\n"
+            "Bu paketda barcha asosiy xizmatlar mavjud:\n"
+            "- Samolyot chiptasi\n"
+            "- Mehmonxona joylashuvi\n"
+            "- Transport xizmatlari\n\n"
+            "Narxi: $1200 dan boshlab.\n"
+            "Buyurtma berish uchun bosh menejerga murojaat qiling: @vip_arabiy"
+        )
         await bot.send_message(user_id, text)
         return
 
-    elif data.startswith("visa_"):
-        if data == "visa_umra":
-            text = (
-                "🛂 <b>Umra Viza</b>\n\n"
-                "Umra ziyorati uchun maxsus viza xizmatlari.\n\n"
-                "Buyurtma uchun adminlar bilan bog‘laning."
-            )
-        elif data == "visa_tourist":
-            text = (
-                "🛂 <b>Turistik Viza</b>\n\n"
-                "Saudiya Arabistoni uchun turistik viza xizmatlari.\n\n"
-                "Qo‘shimcha ma’lumot va buyurtma uchun adminlarga murojaat qiling."
-            )
+    if data == "umra_vip":
         await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🕋 <b>Umra VIP Paket</b>\n\n"
+            "Eksklyuziv xizmatlar, qulay mehmonxonalar, maxsus transport va boshqa qulayliklar.\n"
+            "Narxi: $1800 dan boshlab.\n"
+            "Buyurtma uchun: @vip_arabiy"
+        )
         await bot.send_message(user_id, text)
         return
 
-    elif data == "tasreh_order":
+    # Vizalar
+    if data == "visa_umra":
+        await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🛂 <b>Umra Viza</b>\n\n"
+            "Umra ziyorati uchun Saudiya vizasi xizmatlari.\n"
+            "Narxi: $160.\n"
+            "Bosh menejer: @vip_arabiy"
+        )
+        await bot.send_message(user_id, text)
+        return
+
+    if data == "visa_tourist":
+        await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🛂 <b>Turistik Viza</b>\n\n"
+            "Saudiya Arabistoni uchun turistik viza xizmatlari.\n"
+            "Narxi: $120.\n"
+            "Menejerlar: @vip_arabiy, @V001VB"
+        )
+        await bot.send_message(user_id, text)
+        return
+
+    # Rawdah Tasrihi
+    if data == "tasreh_order":
+        await bot.answer_callback_query(callback_query.id)
         text = (
             "🌟 <b>Rawdah Tasrihi</b>\n\n"
-            "Rawdah maydoniga tasrih olish xizmati.\n"
-            "Iltimos, buyurtma berish uchun biz bilan bog‘laning."
+            "Tasrih olish uchun biz bilan bog‘laning.\n"
+            "Narxlar:\n"
+            "- Vizali mijozlar uchun: 15 SAR\n"
+            "- Vizasis mijozlar uchun: 20 SAR\n\n"
+            "Qo‘shimcha ma'lumot uchun @vip_arabiy"
         )
-        await bot.answer_callback_query(callback_query.id)
         await bot.send_message(user_id, text)
         return
 
-    elif data.startswith("transport_"):
-        if data == "transport_makka":
-            text = (
-                "🚖 <b>Makkaga Transport</b>\n\n"
-                "Qulay va ishonchli transport xizmatlari Makkaga yetib borish uchun."
-            )
-        elif data == "transport_madina":
-            text = (
-                "🚖 <b>Madina Transport</b>\n\n"
-                "Madina shahrida transport xizmatlari."
-            )
+    # Transport
+    if data == "transport_makka":
         await bot.answer_callback_query(callback_query.id)
-        await bot.send_message(user_id, text)
-        return
-
-    elif data.startswith("train_"):
-        if data == "train_mm":
-            text = (
-                "🚄 <b>Madina – Makkah</b>\n\n"
-                "Tezkor HHR poezd chiptalari.\n"
-                "Buyurtma berish uchun adminlar bilan bog‘laning."
-            )
-        elif data == "train_rd":
-            text = (
-                "🚄 <b>Riyadh – Dammam</b>\n\n"
-                "Saudiya poezd chiptalari.\n"
-                "Qo‘shimcha ma’lumot uchun adminlarga murojaat qiling."
-            )
-        await bot.answer_callback_query(callback_query.id)
-        await bot.send_message(user_id, text)
-        return
-
-    elif data == "group_food":
         text = (
-            "🍽️ <b>Guruhlik Ovqatlanish</b>\n\n"
-            "Guruh uchun ovqatlanish xizmatlari.\n"
-            "Buyurtma va tafsilotlar uchun adminlar bilan bog‘laning."
+            "🚖 <b>Makkaga Transport</b>\n\n"
+            "Ishonchli va qulay transport xizmatlari.\n"
+            "Narx va buyurtma uchun admin bilan bog‘laning."
         )
-        await bot.answer_callback_query(callback_query.id)
         await bot.send_message(user_id, text)
         return
 
-    elif data == "donate":
+    if data == "transport_madina":
+        await bot.answer_callback_query(callback_query.id)
         text = (
-            "🎁 <b>Donat Qilish</b>\n\n"
-            "Bizga yordam berishni xohlasangiz, quyidagi kartalarga donat qilishingiz mumkin:\n"
-            "• Uzcard: 8600 1234 5678 9012\n"
-            "• Humo: 9860 1234 5678 9012\n"
-            "• Visa/MasterCard: 4111 1111 1111 1111\n\n"
-            "Har qanday yordam biz uchun juda qadrli! Rahmat! 🙏"
+            "🚖 <b>Madina Transport</b>\n\n"
+            "Madina shahrida transport xizmatlari.\n"
+            "Narxlar va buyurtma: @vip_arabiy"
         )
-        await bot.answer_callback_query(callback_query.id)
         await bot.send_message(user_id, text)
         return
 
-# Qo'shimcha xabarlar va holatlar uchun boshqa handlerlar qo'shilishi mumkin
+    # Poyezd
+    if data == "train_mm":
+        await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🚄 <b>Madina – Makkah</b>\n"
+            "Tezkor HHR poezd chiptalari.\n"
+            "Narx va buyurtma uchun: @vip_arabiy"
+        )
+        await bot.send_message(user_id, text)
+        return
+
+    if data == "train_rd":
+        await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🚄 <b>Riyadh – Dammam</b>\n"
+            "Poyezd chiptalari va rezervatsiya.\n"
+            "Menejer: @vip_arabiy"
+        )
+        await bot.send_message(user_id, text)
+        return
+
+    if data == "train_mk_md":
+        await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🚄 <b>Makkah – Madina</b>\n"
+            "HHR poyezd chiptalari mavjud.\n"
+            "Buyurtma uchun: @vip_arabiy"
+        )
+        await bot.send_message(user_id, text)
+        return
+
+    if data == "train_dm_ry":
+        await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🚄 <b>Dammam – Riyadh</b>\n"
+            "Poyezd chiptalari haqida ma'lumot.\n"
+            "Bog‘lanish: @vip_arabiy"
+        )
+        await bot.send_message(user_id, text)
+        return
+
+    # Guruhlik ovqatlanish
+    if data == "group_food":
+        await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🍽️ <b>Guruhlik Ovqatlanish</b>\n"
+            "Katta guruhlar uchun maxsus ovqatlanish xizmatlari.\n"
+            "Narxlar va buyurtma uchun: @vip_arabiy"
+        )
+        await bot.send_message(user_id, text)
+        return
+
+    # Donat qilish
+    if data == "donate":
+        await bot.answer_callback_query(callback_query.id)
+        text = (
+            "🎁 <b>Donat Qilish</b>\n"
+            "Bizga yordam bermoqchi bo‘lsangiz, quyidagi usullar orqali donat qilishingiz mumkin:\n\n"
+            "Uzcard: 8600 1234 5678 9012\n"
+            "Humo: 9860 1234 5678 9012\n"
+            "Visa: 4111 1111 1111 1111\n"
+            "Kripto: 0xAbcDef1234567890\n\n"
+            "Rahmat! @vip_arabiy"
+        )
+        await bot.send_message(user_id, text)
+        return
+
+    # Default javob
+    await bot.answer_callback_query(callback_query.id, text="Bu tugma uchun javob mavjud emas.")
+
+# --- Fallback for unknown messages ---
+@dp.message_handler()
+async def fallback(message: types.Message):
+    await message.answer("Iltimos, menyudan xizmatni tanlang yoki /start yozing.")
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
