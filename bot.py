@@ -1,338 +1,243 @@
 import logging
-import os
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
-from dotenv import load_dotenv
+import os
 
-# Load env vars
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(',')))
-GROUP_ID = int(os.getenv("GROUP_ID"))
-
-# Configure logging
+# Logger
 logging.basicConfig(level=logging.INFO)
+
+# Environment variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(",")))  # Admin IDs as integers
+GROUP_ID = int(os.getenv("GROUP_ID", "0"))
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
-# ===== FSM States =====
+# FSM States
 class OrderStates(StatesGroup):
-    choosing_service = State()
-    entering_quantity = State()
-    entering_visa_status = State()
-    confirming_order = State()
-    waiting_payment = State()
+    waiting_for_name = State()
+    waiting_for_service = State()
+    waiting_for_confirmation = State()
+    waiting_for_payment = State()
 
-# ===== Payment Info =====
-PAYMENTS = {
-    "Uzcard": "Uzcard: 8600 1234 5678 9012\nNom: UmraJet Bot",
-    "Humo": "Humo: 9860 4321 8765 2109\nNom: UmraJet Bot",
-    "Visa": "Visa: 4111 1111 1111 1111\nNom: UmraJet Bot",
-    "Crypto": "Crypto (BTC): 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
-}
+# --- Utility functions ---
 
-# ===== Services & Prices =====
-SERVICES = {
-    "umrah_standard": {
-        "name": "🕋 Umra Paket - Standart",
-        "desc": "Umra safaringiz uchun eng qulay va arzon paket. Narxi: 1200$ dan boshlab.",
-        "price": 1200
-    },
-    "umrah_vip": {
-        "name": "💎 Umra Paket - VIP",
-        "desc": "Lux darajadagi Umra tajribasi. Narxi: 1800$ dan boshlab.",
-        "price": 1800
-    },
-    "visa_umrah": {
-        "name": "🛂 Umra Vizasi",
-        "desc": "Umra vizasi narxi: 160$. Tez va ishonchli xizmat.",
-        "price": 160
-    },
-    "visa_tourist": {
-        "name": "🛂 Turistik Viza",
-        "desc": "Saudiya Arabistoni uchun turist viza. Narxi: 120$.",
-        "price": 120
-    },
-    "rawdah_tasreh": {
-        "name": "🌟 Rawdah Tasreh",
-        "desc": ("Rawdah tasreh xizmati.\n"
-                 "10 yoki undan ko'p bo'lsa:\n"
-                 " - Visa bilan: 13 SAR / kishiga\n"
-                 " - Visasiz: 17 SAR / kishiga\n"
-                 "Guruh yoki katta buyurtmalarda narx kelishilgan."),
-        "price": None  # Narx shartlarga ko'ra belgilanadi
-    },
-    "transport": {
-        "name": "🚖 Transport xizmatlari",
-        "desc": "Makkaga va Madinaga borish uchun qulay transport xizmatlari.",
-        "price": None
-    },
-    "train_ticket": {
-        "name": "🚆 HHR Poyezd chiptasi",
-        "desc": ("HHR yo'nalishlari:\n"
-                 "- Madina – Makka\n"
-                 "- Riyadh – Dammam\n"
-                 "- Riyadh – Jidda\n"
-                 "- Riyadh – Madina\n"
-                 "- Dammam – Jidda\n"
-                 "- Dammam – Madina\n"
-                 "- Makka – Madina"),
-        "price": None
-    },
-    "group_meal": {
-        "name": "🍽️ Guruh uchun ovqatlanish",
-        "desc": "Guruh ovqatlanish paketlari va maxsus menyular.",
-        "price": None
-    }
-}
+def get_welcome_message(user_name: str) -> str:
+    return (
+        f"👋 Assalomu alaykum, <b>{user_name}</b>!\n\n"
+        "UmraJet botiga xush kelibsiz! Sizga eng yaxshi xizmatlarimizni taklif qilamiz. "
+        "Quyida mavjud xizmatlarimiz bilan tanishing:\n\n"
+        "✨ Umra paketlari\n"
+        "✨ Saudiya vizalari\n"
+        "✨ Rawdah tasrihi\n"
+        "✨ Transport xizmatlari\n"
+        "✨ HHR poyezd chiptalari\n"
+        "✨ Guruhlik ovqatlanish\n"
+        "✨ Donat qilish imkoniyati\n\n"
+        "📢 Yangiliklar uchun kanalimizni kuzatib boring: @umrajet\n"
+        "👨‍💼 Bosh menejerlarimiz:\n"
+        " - @vip_arabiy (Asosiy)\n"
+        " - @V001VB (Zaxira)\n\n"
+        "📩 Xizmatlardan birini tanlash uchun quyidagi menyudan foydalaning."
+    )
 
-MANAGERS = ["@vip_arabiy (Asosiy)", "@V001VB (Zaxira)"]
+def main_menu_keyboard():
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    buttons = [
+        "🕋 Umra Paketlari",
+        "🛂 Saudiya Vizalari",
+        "🌟 Rawdah Tasrihi",
+        "🚖 Transport Xizmatlari",
+        "🚄 HHR Poyezd Chiptalari",
+        "🍽️ Guruhlik Ovqatlanish",
+        "🎁 Donat Qilish",
+        "❌ Bekor Qilish"
+    ]
+    keyboard.add(*buttons)
+    return keyboard
 
-# ===== Keyboards =====
-def main_menu_kb():
-    kb = InlineKeyboardMarkup(row_width=2)
-    for key, service in SERVICES.items():
-        kb.insert(InlineKeyboardButton(service["name"], callback_data=f"service_{key}"))
-    kb.add(InlineKeyboardButton("📞 Biz bilan bog'lanish", callback_data="contact"))
-    return kb
+def service_panel_keyboard(service_name):
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    # Example buttons, customize for each service
+    if service_name == "Umra Paketlari":
+        keyboard.add(
+            types.InlineKeyboardButton("Standard Paket", callback_data="umra_standard"),
+            types.InlineKeyboardButton("VIP Paket", callback_data="umra_vip"),
+        )
+    elif service_name == "Saudiya Vizalari":
+        keyboard.add(
+            types.InlineKeyboardButton("Umra Viza", callback_data="visa_umra"),
+            types.InlineKeyboardButton("Turistik Viza", callback_data="visa_tourist"),
+        )
+    elif service_name == "Rawdah Tasrihi":
+        keyboard.add(
+            types.InlineKeyboardButton("Tasrih olish", callback_data="tasreh_order"),
+        )
+    elif service_name == "Transport Xizmatlari":
+        keyboard.add(
+            types.InlineKeyboardButton("Makkaga Transport", callback_data="transport_makka"),
+            types.InlineKeyboardButton("Madina Transport", callback_data="transport_madina"),
+        )
+    elif service_name == "HHR Poyezd Chiptalari":
+        keyboard.add(
+            types.InlineKeyboardButton("Madina – Makkah", callback_data="train_mm"),
+            types.InlineKeyboardButton("Riyadh – Dammam", callback_data="train_rd"),
+        )
+    elif service_name == "Guruhlik Ovqatlanish":
+        keyboard.add(
+            types.InlineKeyboardButton("Ovqat Buyurtma", callback_data="group_food"),
+        )
+    elif service_name == "Donat Qilish":
+        keyboard.add(
+            types.InlineKeyboardButton("Donat qilish", callback_data="donate"),
+        )
+    keyboard.add(types.InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_menu"))
+    return keyboard
 
-def payment_menu_kb():
-    kb = InlineKeyboardMarkup(row_width=2)
-    for method in PAYMENTS.keys():
-        kb.insert(InlineKeyboardButton(method, callback_data=f"pay_{method}"))
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_to_services"))
-    return kb
+# --- Handlers ---
 
-def confirm_order_kb():
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("✅ Tasdiqlash", callback_data="confirm_order"))
-    kb.add(InlineKeyboardButton("❌ Bekor qilish", callback_data="cancel_order"))
-    return kb
-
-# ===== Helper Functions =====
-def format_service_desc(key):
-    service = SERVICES[key]
-    desc = f"{service['name']}\n\n{service['desc']}"
-    if service["price"]:
-        desc += f"\n\nNarx: {service['price']}$"
-    desc += f"\n\nManagerlar: {', '.join(MANAGERS)}"
-    desc += f"\n\nBizning kanallar: @umrajet, @the_ravza"
-    return desc
-
-def send_admins(message):
-    for admin_id in ADMIN_IDS:
-        try:
-            bot.send_message(admin_id, message, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            logging.error(f"Adminga habar yuborishda xatolik: {e}")
-
-# ===== Bot Handlers =====
-
-@dp.message_handler(commands=["start"])
+@dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
-    await message.answer(
-        "Assalomu alaykum! 👋\n\n"
-        "UmraJet Telegram botiga xush kelibsiz! Siz uchun quyidagi xizmatlarni taklif qilamiz. "
-        "Iltimos, kerakli xizmatni tanlang:",
-        reply_markup=main_menu_kb()
-    )
-    await OrderStates.choosing_service.set()
+    user_name = message.from_user.first_name or "Hurmatli mijoz"
+    await message.answer(get_welcome_message(user_name), reply_markup=main_menu_keyboard())
 
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith("service_"), state=OrderStates.choosing_service)
-async def process_service_choice(callback_query: types.CallbackQuery, state: FSMContext):
-    service_key = callback_query.data[len("service_"):]
-    if service_key not in SERVICES:
-        await callback_query.answer("Noma'lum xizmat tanlandi.")
-        return
-    await state.update_data(service=service_key)
-
-    service = SERVICES[service_key]
-
-    # Maxsus holatlar (masalan, Rawdah Tasreh uchun vizani so'rash)
-    if service_key == "rawdah_tasreh":
-        await callback_query.message.answer(
-            format_service_desc(service_key) + "\n\nNechta tasreh kerakligini kiriting (raqam bilan):"
-        )
-        await OrderStates.entering_quantity.set()
-        return
-
-    if service_key in ["umrah_standard", "umrah_vip", "visa_umrah", "visa_tourist"]:
-        # Oddiy buyurtma - miqdorni sorash
-        await callback_query.message.answer(
-            format_service_desc(service_key) + "\n\nNechta buyurtma qilmoqchisiz? (raqam kiriting):"
-        )
-        await OrderStates.entering_quantity.set()
-        return
-
-    # Agar miqdor kerak bo'lmasa (masalan transport, guruh ovqatlari)
-    await callback_query.message.answer(format_service_desc(service_key))
-    await callback_query.answer()
-
-@dp.message_handler(state=OrderStates.entering_quantity)
-async def process_quantity(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    service_key = data.get("service")
-
-    try:
-        quantity = int(message.text)
-        if quantity <= 0:
-            await message.answer("Iltimos, 1 yoki undan katta raqam kiriting.")
-            return
-    except:
-        await message.answer("Iltimos, faqat raqam kiriting.")
-        return
-
-    await state.update_data(quantity=quantity)
-
-    # Rawdah tasreh maxsus logika
-    if service_key == "rawdah_tasreh":
-        await message.answer(
-            "Tasreh uchun viza borligi haqida ma'lumot bering:\n"
-            "✅ Bor bo'lsa, 'ha' deb yozing\n"
-            "❌ Yo'q bo'lsa, 'yo‘q' deb yozing"
-        )
-        await OrderStates.entering_visa_status.set()
-        return
-
-    # Oddiy xizmatlar uchun to‘lov usulini tanlashga o'tish
-    await message.answer("Iltimos, to‘lov usulini tanlang:", reply_markup=payment_menu_kb())
-    await OrderStates.waiting_payment.set()
-
-@dp.message_handler(state=OrderStates.entering_visa_status)
-async def process_visa_status(message: types.Message, state: FSMContext):
-    visa_answer = message.text.strip().lower()
-    if visa_answer not in ["ha", "yo'q", "yo‘q"]:
-        await message.answer("Iltimos, 'ha' yoki 'yo‘q' deb yozing.")
-        return
-
-    visa_provided = visa_answer == "ha"
-    await state.update_data(visa=visa_provided)
-
-    # Narx hisoblash
-    data = await state.get_data()
-    quantity = data.get("quantity")
-
-    if visa_provided:
-        price_per_person = 13
-    else:
-        price_per_person = 17
-
-    total_price = price_per_person * quantity
-    await state.update_data(total_price=total_price)
-
-    msg = (
-        f"Siz tanlagan xizmat: Rawdah Tasreh\n"
-        f"Nechta tasreh: {quantity}\n"
-        f"Viza mavjudligi: {'Ha' if visa_provided else 'Yo‘q'}\n"
-        f"Narx: {price_per_person} SAR x {quantity} = {total_price} SAR\n\n"
-        "To‘lov usulini tanlang:"
-    )
-    await message.answer(msg, reply_markup=payment_menu_kb())
-    await OrderStates.waiting_payment.set()
-
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith("pay_"), state=OrderStates.waiting_payment)
-async def process_payment_method(callback_query: types.CallbackQuery, state: FSMContext):
-    method = callback_query.data[len("pay_"):]
-    if method not in PAYMENTS:
-        await callback_query.answer("Noma'lum to‘lov usuli.")
-        return
-
-    data = await state.get_data()
-    service_key = data.get("service")
-    quantity = data.get("quantity")
-    visa_provided = data.get("visa", None)
-    total_price = data.get("total_price")
-
-    # Narxni hisoblash kerak bo'lsa
-    if total_price is None:
-        service = SERVICES[service_key]
-        price = service.get("price")
-        if price is not None:
-            total_price = price * quantity
-        else:
-            total_price = "Noma'lum"
-
-    pay_info = PAYMENTS[method]
-
-    text = (
-        f"✅ Buyurtmangiz qabul qilindi!\n\n"
-        f"Xizmat: {SERVICES[service_key]['name']}\n"
-        f"Miqdor: {quantity}\n"
-    )
-    if visa_provided is not None:
-        text += f"Viza: {'Ha' if visa_provided else 'Yo‘q'}\n"
-    text += f"Umumiy narx: {total_price} $\n\n"
-    text += f"To‘lov uchun quyidagi ma'lumotlardan foydalaning:\n\n<code>{pay_info}</code>\n\n"
-    text += "To‘lov qilganingizdan so‘ng, iltimos, tasdiqlash uchun xabar yuboring."
-
-    await callback_query.message.answer(text, parse_mode=ParseMode.HTML)
-
-    # Adminlarga xabar yuborish
-    order_summary = (
-        f"🆕 Yangi buyurtma!\n"
-        f"Foydalanuvchi: @{callback_query.from_user.username or callback_query.from_user.full_name} (ID: {callback_query.from_user.id})\n"
-        f"Xizmat: {SERVICES[service_key]['name']}\n"
-        f"Miqdor: {quantity}\n"
-    )
-    if visa_provided is not None:
-        order_summary += f"Viza: {'Ha' if visa_provided else 'Yo‘q'}\n"
-    order_summary += f"To‘lov usuli: {method}\n"
-    order_summary += f"Umumiy narx: {total_price}\n"
-    order_summary += f"Managerlar: {', '.join(MANAGERS)}"
-
-    for admin_id in ADMIN_IDS:
-        try:
-            await bot.send_message(admin_id, order_summary)
-        except Exception as e:
-            logging.error(f"Adminga xabar yuborishda xato: {e}")
-
-    await callback_query.answer()
+@dp.message_handler(lambda m: m.text == "❌ Bekor Qilish")
+async def cancel_order(message: types.Message, state: FSMContext):
     await state.finish()
+    await message.answer("Buyurtma bekor qilindi. Yana xohlasangiz, boshlash uchun /start buyrug‘ini bosing.",
+                         reply_markup=types.ReplyKeyboardRemove())
 
-@dp.callback_query_handler(lambda c: c.data == "contact", state="*")
-async def contact_us(callback_query: types.CallbackQuery):
-    contact_text = (
-        "Biz bilan bog'lanish:\n"
-        "Asosiy menejer: @vip_arabiy\n"
-        "Zaxira menejer: @V001VB\n\n"
-        "Kanallarimiz:\n"
-        "@umrajet\n"
-        "@the_ravza\n\n"
-        "Savollar bo‘lsa, bemalol murojaat qiling."
-    )
-    await callback_query.message.answer(contact_text)
-    await callback_query.answer()
+@dp.message_handler(lambda m: m.text in [
+    "🕋 Umra Paketlari",
+    "🛂 Saudiya Vizalari",
+    "🌟 Rawdah Tasrihi",
+    "🚖 Transport Xizmatlari",
+    "🚄 HHR Poyezd Chiptalari",
+    "🍽️ Guruhlik Ovqatlanish",
+    "🎁 Donat Qilish"
+])
+async def service_selected(message: types.Message, state: FSMContext):
+    service = message.text
+    await state.update_data(chosen_service=service)
+    kb = service_panel_keyboard(service)
+    await message.answer(f"✅ Siz <b>{service}</b> bo‘limidasiz. Quyidagi xizmatlardan birini tanlang:", reply_markup=kb)
 
-@dp.callback_query_handler(lambda c: c.data == "back_to_services", state="*")
-async def back_to_services(callback_query: types.CallbackQuery):
-    await callback_query.message.answer("Asosiy menyuga qaytdingiz:", reply_markup=main_menu_kb())
-    await OrderStates.choosing_service.set()
-    await callback_query.answer()
+@dp.callback_query_handler(lambda c: c.data.startswith(("umra_", "visa_", "tasreh_", "transport_", "train_", "group_food", "donate", "back_to_menu")))
+async def process_service_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    data = callback_query.data
+    user_id = callback_query.from_user.id
 
-@dp.callback_query_handler(lambda c: c.data == "confirm_order", state=OrderStates.confirming_order)
-async def confirm_order_handler(callback_query: types.CallbackQuery, state: FSMContext):
-    # Bu qism kerak bo'lsa keyin qo'shiladi
-    await callback_query.answer("Buyurtma qabul qilindi!")
-    await state.finish()
+    if data == "back_to_menu":
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(user_id, "Bosh menyuga qaytdingiz.", reply_markup=main_menu_keyboard())
+        return
 
-@dp.callback_query_handler(lambda c: c.data == "cancel_order", state=OrderStates.confirming_order)
-async def cancel_order_handler(callback_query: types.CallbackQuery, state: FSMContext):
-    await callback_query.message.answer("Buyurtma bekor qilindi.")
-    await state.finish()
-    await callback_query.answer()
+    # Bu yerda har bir xizmat uchun tafsilotlar va buyurtma bosqichlari qo‘shiladi
+    if data.startswith("umra_"):
+        # Misol uchun, Umra paketlari
+        if data == "umra_standard":
+            text = (
+                "🕋 <b>Umra Standard Paket</b>\n\n"
+                "Sizga arzon va sifatli Umra paketini taklif qilamiz. Barcha asosiy xizmatlar kiradi.\n\n"
+                "Qo‘shimcha ma’lumot va buyurtma uchun adminlarimizga murojaat qiling."
+            )
+        elif data == "umra_vip":
+            text = (
+                "🕋 <b>Umra VIP Paket</b>\n\n"
+                "Eng yuqori sifatdagi xizmatlar, eksklyuziv joylar va qulayliklar.\n\n"
+                "Buyurtma berish uchun adminlar bilan bog‘laning."
+            )
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(user_id, text)
+        return
 
-@dp.message_handler()
-async def fallback_handler(message: types.Message):
-    await message.answer(
-        "Iltimos, quyidagi menyudan xizmatni tanlang yoki /start buyrug'ini bering.",
-        reply_markup=main_menu_kb()
-    )
+    elif data.startswith("visa_"):
+        if data == "visa_umra":
+            text = (
+                "🛂 <b>Umra Viza</b>\n\n"
+                "Umra ziyorati uchun maxsus viza xizmatlari.\n\n"
+                "Buyurtma uchun adminlar bilan bog‘laning."
+            )
+        elif data == "visa_tourist":
+            text = (
+                "🛂 <b>Turistik Viza</b>\n\n"
+                "Saudiya Arabistoni uchun turistik viza xizmatlari.\n\n"
+                "Qo‘shimcha ma’lumot va buyurtma uchun adminlarga murojaat qiling."
+            )
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(user_id, text)
+        return
 
-if __name__ == "__main__":
+    elif data == "tasreh_order":
+        text = (
+            "🌟 <b>Rawdah Tasrihi</b>\n\n"
+            "Rawdah maydoniga tasrih olish xizmati.\n"
+            "Iltimos, buyurtma berish uchun biz bilan bog‘laning."
+        )
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(user_id, text)
+        return
+
+    elif data.startswith("transport_"):
+        if data == "transport_makka":
+            text = (
+                "🚖 <b>Makkaga Transport</b>\n\n"
+                "Qulay va ishonchli transport xizmatlari Makkaga yetib borish uchun."
+            )
+        elif data == "transport_madina":
+            text = (
+                "🚖 <b>Madina Transport</b>\n\n"
+                "Madina shahrida transport xizmatlari."
+            )
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(user_id, text)
+        return
+
+    elif data.startswith("train_"):
+        if data == "train_mm":
+            text = (
+                "🚄 <b>Madina – Makkah</b>\n\n"
+                "Tezkor HHR poezd chiptalari.\n"
+                "Buyurtma berish uchun adminlar bilan bog‘laning."
+            )
+        elif data == "train_rd":
+            text = (
+                "🚄 <b>Riyadh – Dammam</b>\n\n"
+                "Saudiya poezd chiptalari.\n"
+                "Qo‘shimcha ma’lumot uchun adminlarga murojaat qiling."
+            )
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(user_id, text)
+        return
+
+    elif data == "group_food":
+        text = (
+            "🍽️ <b>Guruhlik Ovqatlanish</b>\n\n"
+            "Guruh uchun ovqatlanish xizmatlari.\n"
+            "Buyurtma va tafsilotlar uchun adminlar bilan bog‘laning."
+        )
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(user_id, text)
+        return
+
+    elif data == "donate":
+        text = (
+            "🎁 <b>Donat Qilish</b>\n\n"
+            "Bizga yordam berishni xohlasangiz, quyidagi kartalarga donat qilishingiz mumkin:\n"
+            "• Uzcard: 8600 1234 5678 9012\n"
+            "• Humo: 9860 1234 5678 9012\n"
+            "• Visa/MasterCard: 4111 1111 1111 1111\n\n"
+            "Har qanday yordam biz uchun juda qadrli! Rahmat! 🙏"
+        )
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(user_id, text)
+        return
+
+# Qo'shimcha xabarlar va holatlar uchun boshqa handlerlar qo'shilishi mumkin
+
+if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
