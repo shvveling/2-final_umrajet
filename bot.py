@@ -1,5 +1,6 @@
 import logging
 from aiogram import Bot, Dispatcher, executor, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
@@ -8,248 +9,231 @@ import os
 logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(',')))
+ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split()))
+GROUP_ID = int(os.getenv("GROUP_ID", "0"))
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot, storage=MemoryStorage())
 
+# -------- States --------
+
 class OrderStates(StatesGroup):
-    choosing_service = State()
-    inputting_details = State()
+    waiting_for_service = State()
+    waiting_for_details = State()
+    waiting_for_payment_method = State()
+    waiting_for_confirmation = State()
+
+# -------- Keyboards --------
+
+# Start menu buttons (services overview)
+start_text = (
+    "🕋 *Assalomu alaykum, {name}!* \n\n"
+    "🎉 UmraJet Telegram botiga xush kelibsiz! Sizga quyidagi xizmatlarni taqdim etamiz:\n\n"
+    "🌟 *Bizning xizmatlar:* \n"
+    "📜 Umra paketlari\n"
+    "🛂 Saudiya vizalari\n"
+    "🏨 Mehmonxonalar va yotoqxona\n"
+    "🚗 Transport xizmatlari\n"
+    "🚅 Poyezd chiptalari\n"
+    "🍽 Guruh taomlari\n"
+    "📿 Ravza tasreh\n"
+    "💰 Donat bo‘limi\n\n"
+    "📢 Bizning kanallar: @umrajet, @the_ravza\n"
+    "📞 Managerlar: @vip_arabiy (Asosiy), @V001VB (Zaxira)\n\n"
+    "*Quyidagi bo‘limlardan birini tanlang va batafsil ma'lumot oling!*"
+)
 
 def main_menu():
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        types.InlineKeyboardButton("🕋 Umra Paketlar", callback_data="umra_packages"),
-        types.InlineKeyboardButton("🛂 Saudiya Vizalari", callback_data="saudi_visas"),
-        types.InlineKeyboardButton("🌹 Ravza Tasreh", callback_data="rawdah_tasreh"),
-        types.InlineKeyboardButton("🚖 Transport", callback_data="transport"),
-        types.InlineKeyboardButton("🚄 HHR Poyezd", callback_data="train"),
-        types.InlineKeyboardButton("🍽️ Guruhlik Ovqatlanish", callback_data="group_food"),
-        types.InlineKeyboardButton("💳 To‘lov", callback_data="payments"),
-        types.InlineKeyboardButton("🎁 Donat Qilish", callback_data="donate"),
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("🕋 Umra paketlari", callback_data="service_umra_packages"),
+        InlineKeyboardButton("🛂 Vizalar", callback_data="service_visas"),
+        InlineKeyboardButton("🏨 Mehmonxonalar", callback_data="service_hotels"),
+        InlineKeyboardButton("🚗 Transport", callback_data="service_transport"),
+        InlineKeyboardButton("🚅 Poyezd chiptalari", callback_data="service_trains"),
+        InlineKeyboardButton("🍽 Guruh taomlari", callback_data="service_group_meals"),
+        InlineKeyboardButton("📿 Ravza tasreh", callback_data="service_ravza_tasreh"),
+        InlineKeyboardButton("💰 Donat bo‘limi", callback_data="donate"),
     )
-    return keyboard
+    return kb
 
-def payment_info_kb():
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        types.InlineKeyboardButton("💳 Uzcard", callback_data="pay_uzcard"),
-        types.InlineKeyboardButton("🏦 Humo", callback_data="pay_humo"),
-        types.InlineKeyboardButton("💳 Visa", callback_data="pay_visa"),
-        types.InlineKeyboardButton("🪙 Kripto", callback_data="pay_crypto"),
-        types.InlineKeyboardButton("🔙 Orqaga", callback_data="back_main"),
+def payment_methods_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("💳 Uzcard", callback_data="pay_uzcard"),
+        InlineKeyboardButton("🏦 Humo", callback_data="pay_humo"),
+        InlineKeyboardButton("💳 Visa", callback_data="pay_visa"),
+        InlineKeyboardButton("🪙 Crypto", callback_data="pay_crypto"),
+        InlineKeyboardButton("🔙 Ortga", callback_data="back_to_services"),
     )
-    return keyboard
+    return kb
 
-@dp.message_handler(commands=["start", "menu"])
+# -------- Handlers --------
+
+@dp.message_handler(commands=["start"])
 async def cmd_start(message: types.Message):
-    text = (
-        f"Assalomu alaykum, {message.from_user.full_name}!\n\n"
-        "UmraJet botiga xush kelibsiz!\n"
-        "Quyidagi xizmatlardan birini tanlang:"
-    )
-    await message.answer(text, reply_markup=main_menu())
-    await OrderStates.choosing_service.set()
+    await message.answer(start_text.format(name=message.from_user.first_name), parse_mode="Markdown", reply_markup=main_menu())
 
-@dp.callback_query_handler(state=OrderStates.choosing_service)
-async def process_service_selection(callback: types.CallbackQuery, state: FSMContext):
-    data = callback.data
-    user_id = callback.from_user.id
+# Service panels handlers
 
-    # Umra paketlar
-    if data == "umra_packages":
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('service_'))
+async def service_handler(callback_query: types.CallbackQuery):
+    service = callback_query.data.split('_')[1]
+
+    if service == "umra":
         text = (
-            "🕋 <b>Umra Paketlar</b>\n\n"
-            "• Standart paket: <b>1200$</b> dan boshlangan\n"
-            "• VIP paket: <b>1800$</b> dan boshlangan\n\n"
-            "Menejerlar:\n"
-            "• @vip_arabiy (Asosiy)\n"
-            "• @V001VB (Zaxira)"
+            "🕋 *Umra Paketlari*\n\n"
+            "✅ Standart paket - $1200 dan boshlanadi\n"
+            "✅ VIP paket - $1800 dan boshlanadi\n\n"
+            "📞 Managerlar: @vip_arabiy (Asosiy), @V001VB (Zaxira)\n\n"
+            "To‘lov usullarini tanlang."
         )
-        await callback.message.answer(text, reply_markup=payment_info_kb())
-        await state.update_data(service_detail="Umra Paketlar")
-        await OrderStates.inputting_details.set()
+    elif service == "visas":
+        text = (
+            "🛂 *Saudiya Vizalari*\n\n"
+            "✅ Umra viza - $160\n"
+            "✅ Turistik viza - $120\n"
+            "❗ Guruhlarga chegirmalar mavjud\n\n"
+            "📞 Managerlar: @vip_arabiy (Asosiy), @V001VB (Zaxira)\n\n"
+            "To‘lov usullarini tanlang."
+        )
+    elif service == "hotels":
+        text = (
+            "🏨 *Mehmonxonalar va Yotoqxona*\n\n"
+            "Sizga qulay va arzon turar joylarni taklif qilamiz.\n\n"
+            "📞 Managerlar: @vip_arabiy (Asosiy), @V001VB (Zaxira)\n\n"
+            "To‘lov usullarini tanlang."
+        )
+    elif service == "transport":
+        text = (
+            "🚗 *Transport Xizmatlari*\n\n"
+            "Avtomobil va avtobuslar bilan qulay transport xizmatlari.\n\n"
+            "📞 Managerlar: @vip_arabiy (Asosiy), @V001VB (Zaxira)\n\n"
+            "To‘lov usullarini tanlang."
+        )
+    elif service == "trains":
+        text = (
+            "🚅 *Poyezd Chiptalari*\n\n"
+            "Mashhur yo‘nalishlar:\n"
+            "– Madina – Makka\n"
+            "– Riyad – Dammam\n"
+            "– Riyad – Makka\n"
+            "– Riyad – Qosim\n\n"
+            "📞 Managerlar: @vip_arabiy (Asosiy), @V001VB (Zaxira)\n\n"
+            "To‘lov usullarini tanlang."
+        )
+    elif service == "group":
+        text = (
+            "🍽 *Guruh Taomlari*\n\n"
+            "Sifatli va mazali taomlar guruhlar uchun.\n\n"
+            "📞 Managerlar: @vip_arabiy (Asosiy), @V001VB (Zaxira)\n\n"
+            "To‘lov usullarini tanlang."
+        )
+    elif service == "ravza":
+        text = (
+            "📿 *Ravza Tasreh*\n\n"
+            "🔹 Viza bilan: 15 SAR / dona\n"
+            "🔹 Vizsiz: 20 SAR / dona\n"
+            "🔹 10 tadan ortiq bo‘lsa, chegirmalar mavjud!\n\n"
+            "📞 Managerlar: @vip_arabiy (Asosiy), @V001VB (Zaxira)\n\n"
+            "To‘lov usullarini tanlang."
+        )
+    else:
+        await callback_query.answer("Kechirasiz, bu xizmat hozircha mavjud emas.", show_alert=True)
         return
 
-    # Saudiya vizalari
-    if data == "saudi_visas":
-        text = (
-            "🛂 <b>Saudiya Vizalari</b>\n\n"
-            "• Umra viza: <b>160$</b>\n"
-            "• Turist viza: <b>120$</b>\n"
-            "Guruhlarga narxlar kelishiladi.\n\n"
-            "Menejerlar:\n"
-            "• @vip_arabiy (Asosiy)\n"
-            "• @V001VB (Zaxira)"
-        )
-        await callback.message.answer(text, reply_markup=payment_info_kb())
-        await state.update_data(service_detail="Saudiya Vizalari")
-        await OrderStates.inputting_details.set()
-        return
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=payment_methods_keyboard())
 
-    # Ravza Tasreh
-    if data == "rawdah_tasreh":
-        text = (
-            "🌹 <b>Ravza Tasreh</b>\n\n"
-            "• Viza berilsa: <b>15 SAR</b> / dona\n"
-            "• Viza berilmasa: <b>20 SAR</b> / dona\n"
-            "• 10 dona va undan ko‘p bo‘lsa yoki guruhlarga narxlar kelishiladi (arzonroq).\n\n"
-            "Menejerlar:\n"
-            "• @vip_arabiy (Asosiy)\n"
-            "• @V001VB (Zaxira)"
-        )
-        await callback.message.answer(text, reply_markup=payment_info_kb())
-        await state.update_data(service_detail="Ravza Tasreh")
-        await OrderStates.inputting_details.set()
-        return
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('pay_'))
+async def payment_handler(callback_query: types.CallbackQuery):
+    pay_method = callback_query.data.split('_')[1]
 
-    # Transport bo‘limi (oddiy, shunchaki habar)
-    if data == "transport":
+    if pay_method == "uzcard":
         text = (
-            "🚖 <b>Transport Xizmatlari</b>\n\n"
-            "Makkaga va Madinaga ishonchli transport xizmatlari.\n"
-            "Menejerlar:\n"
-            "• @vip_arabiy\n"
-            "• @V001VB"
+            "💳 *Uzcard kartalar*:\n"
+            "1️⃣ 8600 0304 9680 2624 (Khamidov Ibodulloh)\n"
+            "2️⃣ 5614 6822 1222 3368 (Khamidov Ibodulloh)\n\n"
+            "❗ Kartani tanlash va nusxalash uchun ustiga bosishingiz mumkin.\n"
         )
-        await callback.message.answer(text)
-        return
-
-    # HHR poyezd chiptalari
-    if data == "train":
+    elif pay_method == "humo":
         text = (
-            "🚄 <b>HHR Poyezd Chiptalari</b>\n\n"
-            "• Madina – Makkah\n"
-            "• Makkah – Madina\n"
-            "• Riyadh – Dammam\n"
-            "• Dammam – Riyadh\n\n"
-            "Buyurtma uchun:\n"
-            "• @vip_arabiy\n"
-            "• @V001VB"
-        )
-        await callback.message.answer(text)
-        return
-
-    # Guruhlik ovqatlanish
-    if data == "group_food":
-        text = (
-            "🍽️ <b>Guruhlik Ovqatlanish</b>\n\n"
-            "Katta guruhlar uchun maxsus ovqatlanish xizmatlari.\n"
-            "Narxlar va buyurtma uchun:\n"
-            "• @vip_arabiy\n"
-            "• @V001VB"
-        )
-        await callback.message.answer(text)
-        return
-
-    # To‘lovlar bo‘limi
-    if data == "payments":
-        text = (
-            "💳 <b>To‘lov Tizimlari</b>\n\n"
-            "Quyidagi to‘lov usullaridan birini tanlang:"
-        )
-        await callback.message.answer(text, reply_markup=payment_info_kb())
-        return
-
-    # Donat qilish
-    if data == "donate":
-        text = (
-            "🎁 <b>Donat Qilish</b>\n\n"
-            "Bizga yordam bermoqchi bo‘lsangiz, quyidagi usullar orqali donat qilishingiz mumkin:\n\n"
-            "Uzcard:\n"
-            "1 - 8600 0304 9680 2624 (Khamidov Ibodulloh)\n"
-            "2 - 5614 6822 1222 3368 (Khamidov Ibodulloh)\n\n"
-            "Humo:\n"
+            "🏦 *Humo kartasi*:\n"
             "9860 1001 2621 9243 (Khamidov Ibodulloh)\n\n"
-            "Visa:\n"
-            "1 - 4140 8400 0184 8680 (Khamidov Ibodulloh)\n"
-            "2 - 4278 3100 2389 5840 (Khamidov Ibodulloh)\n\n"
-            "Crypto:\n"
-            "USDT (Tron TRC20): TLGiUsNzQ8n31x3VwsYiWEU97jdftTDqT3\n"
-            "ETH (BEP20): 0xa11fb72cc1ee74cfdaadb25ab2530dd32bafa8f8\n"
-            "BTC (BEP20): 0xa11fb72cc1ee74cfdaadb25ab2530dd32bafa8f8\n\n"
-            "Rahmat!\n"
-            "Menejerlar:\n"
-            "• @vip_arabiy\n"
-            "• @V001VB"
+            "❗ Kartani tanlash va nusxalash uchun ustiga bosishingiz mumkin.\n"
         )
-        await callback.message.answer(text)
+    elif pay_method == "visa":
+        text = (
+            "💳 *Visa kartalar*:\n"
+            "1️⃣ 4140 8400 0184 8680 (Khamidov Ibodulloh)\n"
+            "2️⃣ 4278 3100 2389 5840 (Khamidov Ibodulloh)\n\n"
+            "❗ Kartani tanlash va nusxalash uchun ustiga bosishingiz mumkin.\n"
+        )
+    elif pay_method == "crypto":
+        text = (
+            "🪙 *Crypto hisoblar*:\n"
+            "USDT (Tron TRC20): `TLGiUsNzQ8n31x3VwsYiWEU97jdftTDqT3`\n"
+            "ETH (BEP20): `0xa11fb72cc1ee74cfdaadb25ab2530dd32bafa8f8`\n"
+            "BTC (BEP20): `0xa11fb72cc1ee74cfdaadb25ab2530dd32bafa8f8`\n\n"
+            "❗ Manzilni nusxalash uchun ustiga bosishingiz mumkin.\n"
+        )
+    else:
+        await callback_query.answer("Kechirasiz, bu to‘lov usuli mavjud emas.", show_alert=True)
         return
 
-    # To‘lov kartalari ma’lumotlari (individual)
-    if data.startswith("pay_"):
-        pay_type = data[4:]
-        if pay_type == "uzcard":
-            text = (
-                "💳 <b>Uzcard Kartalar</b>\n\n"
-                "1 - <code>8600 0304 9680 2624</code> (Khamidov Ibodulloh)\n"
-                "2 - <code>5614 6822 1222 3368</code> (Khamidov Ibodulloh)"
-            )
-        elif pay_type == "humo":
-            text = (
-                "🏦 <b>Humo Kartasi</b>\n\n"
-                "<code>9860 1001 2621 9243</code> (Khamidov Ibodulloh)"
-            )
-        elif pay_type == "visa":
-            text = (
-                "💳 <b>Visa Kartalar</b>\n\n"
-                "1 - <code>4140 8400 0184 8680</code> (Khamidov Ibodulloh)\n"
-                "2 - <code>4278 3100 2389 5840</code> (Khamidov Ibodulloh)"
-            )
-        elif pay_type == "crypto":
-            text = (
-                "🪙 <b>Kripto Hisoblar</b>\n\n"
-                "USDT (Tron TRC20): <code>TLGiUsNzQ8n31x3VwsYiWEU97jdftTDqT3</code>\n"
-                "ETH (BEP20): <code>0xa11fb72cc1ee74cfdaadb25ab2530dd32bafa8f8</code>\n"
-                "BTC (BEP20): <code>0xa11fb72cc1ee74cfdaadb25ab2530dd32bafa8f8</code>"
-            )
-        else:
-            text = "To‘lov turi topilmadi."
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("🔙 Orqaga", callback_data="payments"))
-        await callback.message.answer(text, reply_markup=keyboard)
-        return
+    back_kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_services"))
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=back_kb)
 
-    if data == "back_main":
-        await callback.message.answer("Asosiy menyu:", reply_markup=main_menu())
-        await OrderStates.choosing_service.set()
-        return
+@dp.callback_query_handler(lambda c: c.data == "back_to_services")
+async def back_to_services_handler(callback_query: types.CallbackQuery):
+    await callback_query.message.edit_text(start_text.format(name=callback_query.from_user.first_name), parse_mode="Markdown", reply_markup=main_menu())
 
-    await callback.answer("Noto‘g‘ri yoki mavjud bo‘lmagan buyruq.", show_alert=True)
-
-@dp.message_handler(state=OrderStates.inputting_details)
-async def process_order_details(message: types.Message, state: FSMContext):
-    user_data = await state.get_data()
-    service = user_data.get("service_detail", "Xizmat")
-    user_text = message.text.strip()
-
-    await message.answer(
-        f"✅ Buyurtma qabul qilindi!\n\n"
-        f"<b>Xizmat:</b> {service}\n"
-        f"<b>Foydalanuvchi ma'lumotlari:</b> {user_text}\n\n"
-        f"Menejerlar tez orada siz bilan bog‘lanishadi.\n\n"
-        f"📞 Menejerlar: @vip_arabiy, @V001VB",
-        reply_markup=main_menu()
+# Donat bo‘limi
+@dp.callback_query_handler(lambda c: c.data == "donate")
+async def donate_handler(callback_query: types.CallbackQuery):
+    text = (
+        "💰 *Donat bo‘limi*\n\n"
+        "Bizga yordam berishni istaysizmi? Sizning xayringiz biz uchun juda muhim!\n\n"
+        "Quyidagi usullar orqali donat qilishingiz mumkin:\n\n"
+        "💳 Uzcard va Humo kartalar\n"
+        "🪙 Crypto hisoblar\n\n"
+        "Managerlar:\n"
+        "📞 @vip_arabiy (Asosiy)\n"
+        "📞 @V001VB (Zaxira)\n\n"
+        "Rahmat sizga! 🤲"
     )
-    await state.finish()
+    await callback_query.message.edit_text(text, parse_mode="Markdown", reply_markup=payment_methods_keyboard())
 
-    # Adminlarga xabar yuborish
+# Foydalanuvchi buyurtmasi uchun soddalashtirilgan FSM (misol uchun)
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('service_'))
+async def start_order(callback_query: types.CallbackQuery, state: FSMContext):
+    # Boshlash uchun holatni saqlaymiz
+    await OrderStates.waiting_for_details.set()
+    await state.update_data(service=callback_query.data)
+    await callback_query.message.answer("✅ Buyurtmangizni batafsil yozing yoki savol bering:")
+
+@dp.message_handler(state=OrderStates.waiting_for_details)
+async def process_order_details(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    service = data.get("service", "Noma'lum xizmat")
+
+    # Bu yerda adminlarga buyurtmani jo'natamiz
+    text = (
+        f"🆕 *Yangi buyurtma*\n"
+        f"👤 Foydalanuvchi: {message.from_user.full_name} (@{message.from_user.username})\n"
+        f"📱 ID: {message.from_user.id}\n"
+        f"📌 Xizmat: {service}\n"
+        f"📝 Tafsilotlar: {message.text}\n"
+    )
     for admin_id in ADMIN_IDS:
         try:
-            await bot.send_message(
-                admin_id,
-                f"🔔 <b>Yangi buyurtma</b>\n\n"
-                f"<b>Xizmat:</b> {service}\n"
-                f"<b>Foydalanuvchi:</b> @{message.from_user.username or message.from_user.full_name}\n"
-                f"<b>Ma'lumotlar:</b> {user_text}"
-            )
+            await bot.send_message(admin_id, text, parse_mode="Markdown")
         except Exception as e:
-            logging.error(f"Adminga xabar yuborishda xato: {e}")
+            logging.error(f"Adminga xabar yuborishda xatolik: {e}")
 
-@dp.message_handler()
-async def fallback(message: types.Message):
-    await message.answer("Iltimos, menyudan xizmatni tanlang yoki /start yozing.")
+    await message.answer("✅ Buyurtmangiz qabul qilindi! Tez orada managerlar siz bilan bog‘lanishadi.")
+    await state.finish()
+
+# Qo‘shimcha handlerlar va sozlashlar kerak bo‘lsa, so‘rang.
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
